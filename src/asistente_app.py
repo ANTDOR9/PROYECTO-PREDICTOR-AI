@@ -147,6 +147,11 @@ def _respuesta(m: dict, i: int):
         st.caption("📚 Respuesta de tu base de conocimiento (glosario, marcas y empresas del estudio de mercado).")
         if r.get("nota"):
             st.caption(r["nota"])
+    elif r.get("origen") == "proceso":
+        # cuenta de calendario / ficha de un proceso: la hizo el código, no la IA; no hay SQL que aprender
+        st.caption("📅 Calculado por reglas con tus procesos vigentes; la IA no interviene.")
+        if r.get("nota"):
+            st.caption(r["nota"])
     else:
         with st.expander("Cómo lo obtuve"):
             st.code(r["sql"], language="sql")

@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cliente import RAIZ, chat  # noqa: E402
 import conocimiento  # noqa: E402
+import procesos  # noqa: E402
 
 DB_LIC = RAIZ / "data" / "licitaciones.db"
 DB_AN = RAIZ / "data" / "analisis.db"
@@ -128,7 +129,9 @@ si la pregunta no se puede responder con estas tablas, devuelve {{"sql": "", "no
 HOY: {hoy}
 
 GUÍA DE TABLAS (elige la correcta según la pregunta):
-- vigentes = procesos ABIERTOS ahora, a los que todavía se puede postular (SEACE). Sus fechas son texto \
+- vigentes = procesos ABIERTOS ahora, a los que todavía se puede postular (SEACE). Columnas: id, nomenclatura, \
+entidad, objeto, tipo_proceso, descripcion, valor_referencial, moneda, fecha_convocatoria, fecha_fin_inscripcion, \
+fecha_presentacion, ubigeo, enlace. NO tiene ocid: un proceso se identifica por nomenclatura. Sus fechas son texto \
 'DD/MM/YYYY HH:MM:SS'; para comparar con fechas conviértelas: \
 substr(fecha_fin_inscripcion,7,4)||'-'||substr(fecha_fin_inscripcion,4,2)||'-'||substr(fecha_fin_inscripcion,1,2). \
 "Disponible para postular" = esa fecha convertida >= HOY. El texto del objeto está en la columna descripcion.
@@ -163,13 +166,8 @@ _PIDE_RIVALES = re.compile(r"competidor|rival|postor|se present|quien(es)? (va|v
 
 
 def _proceso_citado(con, pregunta: str):
-    """Fila de `vigentes` cuya nomenclatura aparece en la pregunta (o None)."""
-    q = re.sub(r"\s+", " ", pregunta.upper())
-    for fila in con.execute("select nomenclatura, entidad, descripcion, fecha_presentacion from vigentes "
-                            "where nomenclatura is not null"):
-        if fila[0] and re.sub(r"\s+", " ", fila[0].upper()) in q:
-            return fila
-    return None
+    """(nomenclatura, entidad, descripcion, fecha_presentacion) del proceso vigente citado, o None."""
+    return procesos.proceso_citado(con, pregunta)
 
 
 def _rivales_de_proceso(con, pregunta: str):
@@ -193,7 +191,7 @@ def _rivales_de_proceso(con, pregunta: str):
                 m = predictor.entrenar(h)
                 out = predictor.predecir(m, h, pd.Timestamp.today().normalize(), entidad, "", [], top=10)
                 out = out.assign(prob=(out["prob"] * 100).round(1))
-                return {"ok": True, "sql": "(estimación del predictor, no es SQL)",
+                return {"ok": True, "origen": procesos.ORIGEN, "sql": "(estimación del predictor, no es SQL)",
                         "nota": "Modelo entrenado con el historial de postores.",
                         "columnas": list(out.columns), "filas": out.values.tolist(),
                         "resumen": f"Competidores probables para {cab}. Son probabilidades estimadas "
@@ -213,7 +211,8 @@ def _rivales_de_proceso(con, pregunta: str):
                "GROUP BY proveedor_ganador ORDER BY veces_ganadora DESC LIMIT 10")
         filas = con.execute(sql).fetchall()
         tipo = "empresas que más han ganado procesos de este rubro (esa entidad no tiene histórico)"
-    return {"ok": True, "sql": sql, "nota": "Falta data/analisis.db, por eso no hay probabilidades por empresa.",
+    return {"ok": True, "origen": procesos.ORIGEN, "sql": sql,
+            "nota": "Falta data/analisis.db, por eso no hay probabilidades por empresa.",
             "columnas": ["empresa", "veces_ganadora", "ultima_vez"], "filas": filas,
             "resumen": f"{cab}. Sin historial de postores no puedo estimar quién se presentará; "
                        f"te muestro {tipo}. Para probabilidades reales copia data/analisis.db.",
@@ -224,6 +223,11 @@ def preguntar(pregunta: str, con: sqlite3.Connection | None = None, cfg: dict | 
     propia = con is None
     con = con or conectar()
     try:
+        # un proceso citado por su nomenclatura («¿cuántos días quedan en LP-SM-14-2026-MDCC-1?»): se
+        # contesta con una cuenta de calendario sobre `vigentes`, sin que el modelo escriba SQL.
+        directo = procesos.responder(con, pregunta, db=DB_LIC)
+        if directo:
+            return directo
         directo = _rivales_de_proceso(con, pregunta)
         if directo:
             return directo
@@ -251,7 +255,10 @@ def preguntar(pregunta: str, con: sqlite3.Connection | None = None, cfg: dict | 
             except (sqlite3.Error, ValueError) as e:
                 error = str(e)
         else:
-            return {"ok": False, "motivo": f"el SQL generado falló: {error}", "sql": sql}
+            return {"ok": False, "sql": sql,
+                    "motivo": "No logré armar una consulta válida con estos datos "
+                              f"({error}). Prueba reformulando la pregunta, o citando la nomenclatura "
+                              "completa del proceso, por ejemplo LP-SM-14-2026-MDCC-1."}
         resumen = ""
         if filas:
             tabla = "\n".join(" | ".join(str(x) for x in f) for f in filas[:30])

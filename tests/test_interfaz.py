@@ -125,6 +125,10 @@ def falso(q, *a, **k):
     if {preguntar!r} == "SQL":
         return {{"ok": True, "sql": "SELECT 1 AS n", "nota": "", "columnas": ["n"], "filas": [[1]],
                 "truncado": False, "resumen": "Hay 1."}}
+    if {preguntar!r} == "PROCESO":
+        return {{"ok": True, "origen": "proceso", "sql": "SELECT * FROM vigentes WHERE nomenclatura = 'X'",
+                "nota": "Calculado con la fecha de hoy.", "columnas": ["campo", "valor"],
+                "filas": [["Proceso", "X"]], "truncado": False, "resumen": "X. Cierre de inscripción: hoy."}}
     return {{"ok": True, "origen": "conocimiento", "sql": "(no es SQL)", "nota": "", "columnas": ["campo", "valor"],
             "filas": [["Término", "Brighter"]], "truncado": False, "resumen": "Brighter vende paneles BTOUCH."}}
 consultas.preguntar = falso
@@ -186,6 +190,13 @@ aprender = [b for b in at3.button if b.label.startswith("✅")]
 assert aprender, "debe ofrecer aprender la consulta"
 aprender[0].click().run()
 assert json.loads((tmp / "aprendidas.json").read_text())[0] == "cuántos"
+
+# --- un proceso concreto: lo calcula el código, sin SQL que aprender
+at3b = abrir(LISTO, "PROCESO")
+at3b.chat_input[0].set_value("cuantos dias quedan en X").run()
+assert not at3b.exception, [e.value for e in at3b.exception]
+assert "Cierre de inscripción: hoy." in textos(at3b) and "la IA no interviene" in textos(at3b)
+assert not any(b.label.startswith("✅") for b in at3b.button) and not any("Cómo lo obtuve" in e.label for e in at3b.expander)
 
 # --- la IA tarda o falla: mensaje claro dentro del chat, sin romper la página
 at4 = abrir(LISTO, "ERROR")

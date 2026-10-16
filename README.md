@@ -241,6 +241,7 @@ Acuerdo Marco de Perú Compras a monitorear — sin tocar código.
 - `tests/test_ia.py` — pruebas de la capa de IA con servidor simulado
 - `src/estilo.py` — apariencia común (modo claro y oscuro); `src/ia/equipo.py` — especificaciones del equipo y qué modelos le caben
 - `tests/test_interfaz.py` — pruebas del chat, la configuración y los colores
+- `src/ia/procesos.py` — preguntas sobre un proceso concreto (plazos, ficha) resueltas por reglas con la tabla `vigentes`, sin IA; `tests/test_procesos.py` las prueba
 - `PROJECT_CONTEXT.md` — memoria técnica completa del proyecto (leer primero)
 
 ## Qué se ha logrado
@@ -330,6 +331,8 @@ El botón **🤖 Asistente IA** abre una pantalla con el **chat al centro** y cu
 | ⚙️ Configuración | **especificaciones del equipo** (procesador, memoria libre/total, tarjeta de video, disco), modelo recomendado según la memoria, elección de modelo/dispositivo/contexto, prueba de velocidad, descarga de modelos con su ajuste al equipo (✅ cómodo · ⚠️ justo · ⛔ pesado), dónde corre el modelo ahora y qué conoce la IA (glosario, empresas, marcas, participaciones) |
 
 Sin Ollama el chat sigue respondiendo lo que está en la base de conocimiento.
+
+**Preguntas por un proceso.** Si citas la nomenclatura (`¿cuántos días quedan en CONV-PROC-23-2026-UNSA.-1?`, `¿de qué trata LP-SM-14-2026-MDCC-1?`) el asistente no usa la IA: busca el proceso en `vigentes`, calcula con la fecha de hoy (cierre de inscripción y presentación de propuestas) y muestra la ficha. Acepta el código con espacios o en minúsculas, avisa si el proceso ya no está vigente o no existe, y avisa si la lista de vigentes tiene más de una semana.
 
 **Tema claro/oscuro.** Se cambia en el menú ⋮ (arriba a la derecha) → *Settings* → *Theme*.
 Los colores base están en `.streamlit/config.toml` (secciones `[theme.light]` y `[theme.dark]`)
