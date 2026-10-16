@@ -14,3 +14,6 @@ pdfplumber>=0.11
 scikit-learn>=1.3
 scipy>=1.10
 numpy>=1.24
+
+# Cuaderno de ejemplo (notebooks/) y gráficos
+matplotlib>=3.7

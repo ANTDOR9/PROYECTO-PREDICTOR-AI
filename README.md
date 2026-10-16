@@ -242,6 +242,7 @@ Acuerdo Marco de Perú Compras a monitorear — sin tocar código.
 - `src/estilo.py` — apariencia común (modo claro y oscuro); `src/ia/equipo.py` — especificaciones del equipo y qué modelos le caben
 - `tests/test_interfaz.py` — pruebas del chat, la configuración y los colores
 - `src/ia/procesos.py` — preguntas sobre un proceso concreto (plazos, ficha) resueltas por reglas con la tabla `vigentes`, sin IA; `tests/test_procesos.py` las prueba
+- `notebooks/` — cuaderno Jupyter de prueba con nuestros datos (mapa de tablas y fronteras de decisión) y su `README.md`
 - `PROJECT_CONTEXT.md` — memoria técnica completa del proyecto (leer primero)
 
 ## Qué se ha logrado
