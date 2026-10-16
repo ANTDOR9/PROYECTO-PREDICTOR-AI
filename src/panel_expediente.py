@@ -31,6 +31,9 @@ import streamlit as st
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "ia"))
+import estilo  # noqa: E402
+
+ANCHO = estilo.ANCHO
 
 TMP = RAIZ / "tmp" / "panel"
 
@@ -296,7 +299,7 @@ def _tabla_resultados(resultados: list[dict]) -> None:
             "Cumple": r["verde"], "Observado": r["amarillo"],
             "No cumple": r["rojo"], "Sin dato": r["sin_dato"],
         } for r in sorted(utiles, key=lambda r: (r["rojo"], -r["comparables"]))])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, **ANCHO, hide_index=True)
 
     for r in sorted(utiles, key=lambda r: (r["rojo"], -r["comparables"])):
         bloq = [d for d in r["detalle"] if d["resultado"] == "NO CUMPLE"]
@@ -528,13 +531,13 @@ def render_vigente(fila: dict) -> None:
             st.dataframe(pd.DataFrame(its).rename(columns={
                 "nro": "N.º", "descripcion": "Descripción", "producto": "Producto (catálogo)",
                 "cantidad": "Cantidad", "unidad": "Unidad", "departamento": "Departamento"}),
-                use_container_width=True, hide_index=True)
+                **ANCHO, hide_index=True)
     crono = fs.cronograma(ficha)
     if crono:
         with st.expander("Cronograma del proceso"):
             st.dataframe(pd.DataFrame(crono).rename(columns={
                 "etapa": "Etapa", "inicio": "Desde", "fin": "Hasta"}),
-                use_container_width=True, hide_index=True)
+                **ANCHO, hide_index=True)
 
     docs = documentos_de_ficha(ficha)
     if not docs:

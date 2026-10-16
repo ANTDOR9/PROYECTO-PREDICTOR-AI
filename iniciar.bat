@@ -14,7 +14,7 @@ set ACCION=%1
 if "%ACCION%"=="" set ACCION=tablero
 if /i "%ACCION%"=="comprobar" ( python src\ia\comprobar_ia.py & goto :fin )
 if /i "%ACCION%"=="demo"      ( python src\analizar_ia.py --demo & goto :fin )
-if /i "%ACCION%"=="tests"     ( python tests\test_ia.py & python tests\test_ml.py & python tests\test_alerta.py & python tests\test_graficos.py & python tests\test_conocimiento.py & python tests\test_ficha_seace.py & goto :fin )
+if /i "%ACCION%"=="tests"     ( python tests\test_ia.py & python tests\test_ml.py & python tests\test_alerta.py & python tests\test_graficos.py & python tests\test_conocimiento.py & python tests\test_ficha_seace.py & python tests\test_interfaz.py & goto :fin )
 if /i "%ACCION%"=="graficos"  ( python src\ruido_datos.py & goto :fin )
 if /i "%ACCION%"=="validar"   ( python src\ml\validar.py & goto :fin )
 if /i "%ACCION%"=="alerta"    ( python src\alerta_diaria.py --actualizar & goto :fin )

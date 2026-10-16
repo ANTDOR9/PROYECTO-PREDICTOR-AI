@@ -8,12 +8,17 @@ sean fuentes claramente distintas con su propia metodologia):
   - Peru Compras  -> Ordenes por Acuerdo Marco (Catalogos Electronicos)
   - PetroPeru     -> Avisos de Contratacion Futura (senal temprana)
 """
-import os, sqlite3
+import os, sqlite3, sys
 import pandas as pd
 import streamlit as st
 import yaml
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _sub in ("src", os.path.join("src", "ia")):
+    if os.path.join(BASE, _sub) not in sys.path:
+        sys.path.insert(0, os.path.join(BASE, _sub))
+import estilo
+ANCHO = estilo.ANCHO
 
 def cfg():
     return yaml.safe_load(open(os.path.join(BASE, "config.yaml"), encoding="utf-8"))
@@ -43,12 +48,12 @@ def selector_todos(key, etiqueta_singular="registros"):
     c1, c2 = st.columns(2)
     if c1.button("🏷️ Solo relevantes", key=f"{key}_rel",
                  type="secondary" if st.session_state[key] else "primary",
-                 use_container_width=True):
+                 **ANCHO):
         st.session_state[key] = False
         st.rerun()
     if c2.button(f"👁️ Ver TODOS los {etiqueta_singular}", key=f"{key}_todos_btn",
                  type="primary" if st.session_state[key] else "secondary",
-                 use_container_width=True):
+                 **ANCHO):
         st.session_state[key] = True
         st.rerun()
     return st.session_state[key]
@@ -73,8 +78,7 @@ def export_button(df, nombre):
 import re, unicodedata
 from datetime import datetime
 
-COLOR_ESTADO = {"Abierta": "#E1F5EE", "Cierra pronto": "#FAEEDA",
-                "Vencida": "#FCEBEB", "Sin fecha": "#F1EFE8"}
+COLOR_ESTADO = {"Abierta": "ok", "Cierra pronto": "pronto", "Vencida": "malo", "Sin fecha": "neutro"}
 
 def _norm(t):
     if not t: return ""
@@ -100,8 +104,7 @@ def estado_por_fecha(fecha_str):
     return "Sin fecha", None
 
 def _colorea(fila):
-    c = COLOR_ESTADO.get(fila.get("Estado"), "")
-    return [f"background-color: {c}" for _ in fila]
+    return [estilo.fondo(COLOR_ESTADO.get(fila.get("Estado"), "neutro")) for _ in fila]
 
 def etiqueta_de(texto, etiquetas, excluir):
     # palabra completa (\b), no subcadena -- mismo fix que extract.py/vigentes.py
@@ -163,55 +166,24 @@ def parsear_fecha_es(txt):
 def _color_estado_entrega(estado):
     e = _norm(estado)
     if not e or "sin dato" in e:
-        return "#F1EFE8"  # gris, sin info
+        return "neutro"
     if any(x in e for x in ("vencida", "rechazada", "anulada", "no entregada")):
-        return "#FCEBEB"  # rojo
+        return "malo"
     if "pendiente" in e:
-        return "#FAEEDA"  # amarillo
+        return "pronto"
     if "aceptada" in e or "conforme" in e or "entregada" in e:
-        return "#E1F5EE"  # verde
-    return "#F1EFE8"
+        return "ok"
+    return "neutro"
 
 def _colorea_perucompras(fila):
-    c = _color_estado_entrega(fila.get("estado_entrega", ""))
-    return [f"background-color: {c}" for _ in fila]
+    return [estilo.fondo(_color_estado_entrega(fila.get("estado_entrega", ""))) for _ in fila]
 
 def _colorea_perucompras_render(fila):
-    c = _color_estado_entrega(fila.get("Estado de entrega", ""))
-    return [f"background-color: {c}" for _ in fila]
+    return [estilo.fondo(_color_estado_entrega(fila.get("Estado de entrega", ""))) for _ in fila]
 
 st.set_page_config(page_title="Monitor de Licitaciones - Brighter", layout="wide")
 
-# Barra de scroll horizontal de las tablas mas gruesa y facil de agarrar
-# (por defecto Streamlit/glide-data-grid la deja muy delgada).
-st.markdown("""
-<style>
-[data-testid="stDataFrame"] div::-webkit-scrollbar {
-    height: 16px !important;
-    width: 16px !important;
-}
-[data-testid="stDataFrame"] div::-webkit-scrollbar-thumb {
-    background: #8a8a8a !important;
-    border-radius: 8px !important;
-}
-[data-testid="stDataFrame"] div::-webkit-scrollbar-track {
-    background: #e6e6e6 !important;
-}
-/* Quinto botón en verde: el comparador no es otra fuente de datos, es la
-   función propia del proyecto. El selector por clave existe desde Streamlit
-   1.39; en versiones anteriores el botón funciona igual, solo que gris, y el
-   círculo verde de la etiqueta lo sigue distinguiendo. */
-.st-key-sel_comparador button {
-    background-color: #1E8449 !important;
-    border-color: #1E8449 !important;
-    color: #FFFFFF !important;
-}
-.st-key-sel_comparador button:hover {
-    background-color: #166B3A !important;
-    border-color: #166B3A !important;
-}
-</style>
-""", unsafe_allow_html=True)
+estilo.aplicar()
 
 if "vista" not in st.session_state:
     st.session_state.vista = "seace"
@@ -254,7 +226,7 @@ def vista_perucompras():
     hcol1.write("")
     if "pc_avanzado" not in st.session_state:
         st.session_state.pc_avanzado = False
-    if hcol2.button("🔍 Búsqueda avanzada", key="btn_pc_avanzado", use_container_width=True):
+    if hcol2.button("🔍 Búsqueda avanzada", key="btn_pc_avanzado", **ANCHO):
         st.session_state.pc_avanzado = not st.session_state.pc_avanzado
 
     total_antes_avanzado = len(f)
@@ -302,7 +274,7 @@ def vista_perucompras():
     tabla_pc = tabla_pc[cols_pc].sort_values("Fecha aceptación", ascending=False)
     st.dataframe(
         tabla_pc.style.apply(_colorea_perucompras_render, axis=1),
-        use_container_width=True, hide_index=True, height=altura_tabla(len(tabla_pc)),
+        **ANCHO, hide_index=True, height=altura_tabla(len(tabla_pc)),
     )
     st.caption("🟢 Aceptada/Entregada  🟡 Pendiente  🔴 Vencida/Rechazada/Anulada  ⬜ Sin dato")
     st.info(f"🔎 Para ver el detalle de una orden: copia su **N° Orden de Compra** y búscalo en el "
@@ -382,12 +354,12 @@ def vista_seace():
                 }).sort_values("Dias restantes", na_position="last")
                 st.dataframe(
                     tabla.style.apply(_colorea, axis=1),
-                    use_container_width=True, hide_index=True, height=altura_tabla(len(tabla)),
+                    **ANCHO, hide_index=True, height=altura_tabla(len(tabla)),
                     column_config={"Ver en SEACE": st.column_config.LinkColumn("Ver en SEACE", display_text="Abrir portal")},
                 )
                 with st.expander("Resumen por etiqueta"):
                     st.dataframe(f.groupby("Etiqueta").size().reset_index(name="Oportunidades"),
-                                 use_container_width=True, hide_index=True)
+                                 **ANCHO, hide_index=True)
                 export_button(f, "vigentes_export.xlsx")
 
     with tab2:
@@ -404,7 +376,7 @@ def vista_seace():
             hcol1.subheader("Historico de adjudicaciones")
             if "hist_avanzado" not in st.session_state:
                 st.session_state.hist_avanzado = False
-            if hcol2.button("🔍 Búsqueda histórico avanzado", key="btn_hist_avanzado", use_container_width=True):
+            if hcol2.button("🔍 Búsqueda histórico avanzado", key="btn_hist_avanzado", **ANCHO):
                 st.session_state.hist_avanzado = not st.session_state.hist_avanzado
 
             f = df
@@ -460,7 +432,7 @@ def vista_seace():
             cols_mostrar = [c for c in df.columns if not c.startswith("_")]
             st.dataframe(
                 f[cols_mostrar].sort_values("fecha", ascending=False),
-                use_container_width=True, hide_index=True, height=altura_tabla(len(f)),
+                **ANCHO, hide_index=True, height=altura_tabla(len(f)),
                 column_config={"enlace": st.column_config.LinkColumn(
                     "Ficha SEACE", display_text="Ver proceso")},
             )
@@ -510,7 +482,7 @@ def vista_petroperu():
     hcol1, hcol2 = st.columns([3, 1])
     if "pp_avanzado" not in st.session_state:
         st.session_state.pp_avanzado = False
-    if hcol2.button("🔍 Búsqueda avanzada", key="btn_pp_avanzado", use_container_width=True):
+    if hcol2.button("🔍 Búsqueda avanzada", key="btn_pp_avanzado", **ANCHO):
         st.session_state.pp_avanzado = not st.session_state.pp_avanzado
 
     total_antes_avanzado = len(f)
@@ -556,7 +528,7 @@ def vista_petroperu():
     cols_pp = [c for c in cols_pp if c in tabla_pp.columns]
     st.dataframe(
         tabla_pp[cols_pp].sort_values("Fecha publicación", ascending=False),
-        use_container_width=True, hide_index=True, height=altura_tabla(len(tabla_pp)),
+        **ANCHO, hide_index=True, height=altura_tabla(len(tabla_pp)),
         column_config={"Documento": st.column_config.LinkColumn("Documento", display_text="Ver PDF")},
     )
     export_button(f, "petroperu_export.xlsx")
@@ -597,7 +569,7 @@ def vista_bnacion():
     hcol1, hcol2 = st.columns([3, 1])
     if "bn_avanzado" not in st.session_state:
         st.session_state.bn_avanzado = False
-    if hcol2.button("🔍 Búsqueda avanzada", key="btn_bn_avanzado", use_container_width=True):
+    if hcol2.button("🔍 Búsqueda avanzada", key="btn_bn_avanzado", **ANCHO):
         st.session_state.bn_avanzado = not st.session_state.bn_avanzado
 
     total_antes_avanzado = len(f)
@@ -648,7 +620,7 @@ def vista_bnacion():
     cols_bn = [c for c in cols_bn if c in tabla_bn.columns]
     st.dataframe(
         tabla_bn[cols_bn].sort_values("Fecha bases", ascending=False),
-        use_container_width=True, hide_index=True, height=altura_tabla(len(tabla_bn)),
+        **ANCHO, hide_index=True, height=altura_tabla(len(tabla_bn)),
         column_config={"Documento": st.column_config.LinkColumn("Documento", display_text="Ver bases (PDF)")},
     )
     export_button(f, "bnacion_export.xlsx")
@@ -752,11 +724,11 @@ def vista_ia():
 
 
 FUENTES = {
-    "seace": "📡 SEACE / OECE",
+    "seace": "📡 SEACE",
     "perucompras": "🛒 Perú Compras",
     "petroperu": "🛢️ PetroPerú",
-    "bnacion": "🏦 Banco de la Nación",
-    "comparador": "🟢 Comparador BTOUCH",
+    "bnacion": "🏦 B. Nación",
+    "comparador": "🟢 Comparador",
     "ia": "🤖 Asistente IA",
 }
 
@@ -765,7 +737,7 @@ def selector_fuente():
     for col, (clave, etiqueta) in zip(cols, FUENTES.items()):
         activo = st.session_state.vista == clave
         if col.button(etiqueta, key=f"sel_{clave}", type="primary" if activo else "secondary",
-                       use_container_width=True):
+                       **ANCHO):
             st.session_state.vista = clave
             st.rerun()
     st.divider()

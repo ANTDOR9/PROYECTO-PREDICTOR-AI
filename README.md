@@ -239,6 +239,8 @@ Acuerdo Marco de Perú Compras a monitorear — sin tocar código.
 - `data/` — base SQLite (`licitaciones.db`, sí se versiona) y descargas crudas (no se versionan)
 - `src/ia/` — capa de IA local (cliente Ollama, extracción, clasificación, explicación)
 - `tests/test_ia.py` — pruebas de la capa de IA con servidor simulado
+- `src/estilo.py` — apariencia común (modo claro y oscuro); `src/ia/equipo.py` — especificaciones del equipo y qué modelos le caben
+- `tests/test_interfaz.py` — pruebas del chat, la configuración y los colores
 - `PROJECT_CONTEXT.md` — memoria técnica completa del proyecto (leer primero)
 
 ## Qué se ha logrado
@@ -315,6 +317,26 @@ Datos: OCDS / OECE (ex OSCE), Perú Compras, PetroPerú y Banco de la Nación,
 licencia CC BY 4.0.
 
 
+
+## El Asistente IA: chat, configuración y tema
+
+El botón **🤖 Asistente IA** abre una pantalla con el **chat al centro** y cuatro secciones:
+
+| sección | qué hay |
+|---|---|
+| 💬 Chat | conversación con historial. Al empezar muestra globos de sugerencia (tocar uno hace la pregunta); después quedan en «💡 Ideas». Las respuestas del glosario/ranking se marcan como tal; las de datos traen su tabla y «Cómo lo obtuve» (SQL) para verificar y «aprender» la consulta |
+| 📬 Alerta de hoy | la última alerta de `data/alertas/` |
+| 🎯 Competidores | probabilidad de que cada empresa se presente a un proceso parecido |
+| ⚙️ Configuración | **especificaciones del equipo** (procesador, memoria libre/total, tarjeta de video, disco), modelo recomendado según la memoria, elección de modelo/dispositivo/contexto, prueba de velocidad, descarga de modelos con su ajuste al equipo (✅ cómodo · ⚠️ justo · ⛔ pesado), dónde corre el modelo ahora y qué conoce la IA (glosario, empresas, marcas, participaciones) |
+
+Sin Ollama el chat sigue respondiendo lo que está en la base de conocimiento.
+
+**Tema claro/oscuro.** Se cambia en el menú ⋮ (arriba a la derecha) → *Settings* → *Theme*.
+Los colores base están en `.streamlit/config.toml` (secciones `[theme.light]` y `[theme.dark]`)
+y el resto del estilo en `src/estilo.py`. Los colores de estado de las tablas son translúcidos
+a propósito: con fondos pastel fijos la letra clara del tema oscuro quedaba ilegible.
+
+Prueba: `python tests/test_interfaz.py` (no necesita Ollama).
 
 ## El Comparador BTOUCH dentro del tablero
 

@@ -1,2 +1,18 @@
 [browser]
 gatherUsageStats = false
+
+# Apariencia. El usuario puede cambiar entre claro, oscuro o "como el sistema" desde
+# el menú ⋮ de la esquina superior derecha > Settings > Theme.
+[theme]
+primaryColor = "#1E8449"
+font = "sans serif"
+
+[theme.light]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#EEF3F0"
+textColor = "#17231C"
+
+[theme.dark]
+backgroundColor = "#0E1411"
+secondaryBackgroundColor = "#17201B"
+textColor = "#E7EEE9"

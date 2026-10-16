@@ -56,6 +56,10 @@ _INTENCION = re.compile(
 RELLENO = {"un", "una", "unos", "unas", "empresa", "marca", "termino", "sobre", "acerca", "con", "por",
            "para", "en", "mi", "su", "que", "es", "son"}
 
+#: «ficha técnica / especificaciones / modelos de <empresa>»: la base no guarda productos de los postores
+_PIDE_FICHA = re.compile(r"\b(fichas?\s+tecnicas?|especificaciones?(\s+tecnicas?)?|caracteristicas|datasheet|"
+                         r"que\s+modelos?|cual(es)?\s+(es\s+)?(el|los|su|sus)\s+modelos?)\b")
+
 _PIDE_RANKING = re.compile(
     r"(principales|mejores|mas\s+(probables|fuertes|activos|importantes|fuerte|activo))\s+(competidor|rival|empresa|postor)"
     r"|competidores?\s+(mas|principales|probables|importantes|fuertes)"
@@ -286,6 +290,31 @@ def _respuesta(columnas, filas, resumen, nota="") -> dict:
             "filas": filas, "resumen": resumen, "truncado": False}
 
 
+def _sin_ficha(con, ruc: str, otras: list[str]) -> dict:
+    """Piden la ficha técnica de los equipos de una empresa. No existe en la base: se dice, con lo
+    que sí se sabe de ella y dónde buscarlo, en vez de dejar que un modelo pequeño invente."""
+    h, _ = _hechos_empresa(con, ruc)
+    d = dict(h)
+    texto = (f"No tengo la ficha técnica de los equipos que presenta {d['Empresa']}: mi base de datos guarda "
+             "quién se presentó, cuántas veces y quién ganó, pero no las especificaciones de los productos "
+             "que ofertan los postores.")
+    marca = d.get("Marca(s) de pantalla")
+    if marca and norm(marca).startswith("sin evidencia"):
+        texto += " Tampoco hay evidencia pública de qué marca de pantalla ofrece."
+    elif marca:
+        texto += f" Solo consta que trabaja con la marca: {marca}."
+    if d.get("Participaciones (2023-2026)"):
+        texto += (f" Sí sé que se presentó a {d['Participaciones (2023-2026)']} procesos y fue adjudicada "
+                  f"en {d.get('Adjudicadas', '0')}.")
+    texto += (" Para saber qué modelo ofrece, hay que revisar su oferta o el acta de otorgamiento de la "
+              "buena pro en el expediente de un proceso en el que participó.")
+    claves = ("Empresa", "RUC", "Marca(s) de pantalla", "Participaciones (2023-2026)", "Adjudicadas",
+              "Evidencia", "Observación")
+    filas = [(k, d[k]) for k in claves if k in d]
+    nota = ("También podría referirse a: " + "; ".join(otras)) if otras else ""
+    return _respuesta(["campo", "valor"], filas, texto, nota)
+
+
 # ----------------------------------------------------------------------- API
 def ranking_general(con) -> dict | None:
     if _tabla(con, "ranking_empresas"):
@@ -328,6 +357,8 @@ def responder(con: sqlite3.Connection, pregunta: str, cfg: dict | None = None, u
                           "Buena pro, y decirte quién es una empresa o marca del estudio de mercado. "
                           "Si buscas datos (montos, fechas, procesos), reformula la pregunta."}
     tipo, clave, nombre, otras = hallado
+    if tipo == "empresa" and _PIDE_FICHA.search(q):
+        return _sin_ficha(con, clave, otras)
     if not pide:
         # sin «qué es…» solo se acepta si la pregunta ES el nombre («brighter», «la empresa STANDAR»);
         # si sobran palabras («¿cuántas licitaciones hay vigentes?») es una pregunta de datos.

@@ -92,6 +92,8 @@ BANCO = [
     ("qué empresas se presentaron más veces en Arequipa?", "SQL"),
     ("cuales son los postores de pizarras", "SQL"),
     ("qué es SOLUCIONES", "NO"),                                       # palabra genérica sola no identifica empresa
+    ("ficha tecnica de sus pantallas de ALFA TECH S.A.C.", "OK"),     # no hay fichas de postores: lo dice
+    ("ficha tecnica de pizarra interactiva 86", "SQL"),                # sin empresa: no es asunto de este enrutador
 ]
 for pregunta, esperado in BANCO:
     r = conocimiento.responder(con, pregunta, usar_llm=False)
@@ -101,6 +103,9 @@ for pregunta, esperado in BANCO:
 r = conocimiento.responder(con, "qué es ALFA TECH", usar_llm=False)
 assert "RUC 20111111111" in r["resumen"] and "12 procesos" in r["resumen"] and "Proceso ganado" in dict(r["filas"]).keys() | {x[0] for x in r["filas"]}
 assert r["sql"].startswith("(") and r["origen"] == "conocimiento"       # la interfaz no muestra SQL ni «aprender»
+r = conocimiento.responder(con, "ficha tecnica de sus pantallas de ALFA TECH S.A.C.", usar_llm=False)
+assert r["resumen"].startswith("No tengo la ficha técnica") and "12 procesos" in r["resumen"]   # no inventa especificaciones
+assert not any(k in {"Resolución", "Brillo", "Tamaño"} for k, _ in r["filas"])
 r = conocimiento.responder(con, "cuales son los competidores mas probables", usar_llm=False)
 assert r["filas"][0][0] == "ALFA TECH S.A.C."                           # el de mayor puntaje primero
 
