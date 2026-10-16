@@ -20,6 +20,8 @@ dice en qué paso se detuvo y por qué, en lugar de quedarse en blanco.
 
 from __future__ import annotations
 
+import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -356,20 +358,60 @@ def render(fila: dict, db: Path | str) -> None:
             "expediente descargable.")
         return
 
+    _seccion_analisis(docs, ocid)
+
+
+# --------------------------------------------------------------------------- #
+# Sección de análisis (la comparten el histórico y los procesos vigentes)
+# --------------------------------------------------------------------------- #
+
+CACHE_ANALISIS = RAIZ / "data" / "cache_analisis"
+
+
+def _ruta_cache(filecode: str) -> Path | None:
+    # el fileCode es un UUID; se valida para que nunca arme una ruta fuera de la carpeta
+    return CACHE_ANALISIS / f"{filecode}.json" if re.fullmatch(r"[A-Za-z0-9_-]{8,64}", filecode or "") else None
+
+
+def _leer_cache(filecode: str) -> dict | None:
+    """Resultado guardado de un análisis, o None. Una copia a la que le falten campos (de una
+    versión anterior o dañada) se ignora en lugar de romper el panel."""
+    ruta = _ruta_cache(filecode)
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8")) if ruta and ruta.exists() else None
+    except (OSError, ValueError):
+        return None
+    necesarios = {"ok", "filecode", "specs", "cobertura", "resultados"}
+    return datos if isinstance(datos, dict) and datos.get("ok") and necesarios <= datos.keys() else None
+
+
+def _guardar_cache(resultado: dict) -> None:
+    """Solo se guardan los análisis completos: un fallo (red, escaneo ilegible) se reintenta."""
+    ruta = _ruta_cache(resultado.get("filecode", ""))
+    if not (ruta and resultado.get("ok")):
+        return
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_text(json.dumps(resultado, ensure_ascii=False, default=str), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _seccion_analisis(docs: list[dict], clave_ui: str) -> None:
     etiquetas = [f"[{d['clase']}] {d['titulo'] or d['tipo_doc']} ({d['etapa']})"
                  for d in docs]
     i = st.selectbox("Documento del expediente", range(len(docs)),
-                     format_func=lambda i: etiquetas[i], key=f"doc_{ocid}")
+                     format_func=lambda i: etiquetas[i], key=f"doc_{clave_ui}")
     elegido = docs[i]
 
     clave = f"analisis_{elegido['filecode']}"
     ia_lista = _ia_lista()
     usar_ia = st.checkbox(
         "Usar IA local (Ollama) para completar y explicar",
-        value=ia_lista, disabled=not ia_lista, key=f"ia_{ocid}",
+        value=ia_lista, disabled=not ia_lista, key=f"ia_{clave_ui}",
         help="Las reglas dictaminan siempre; la IA completa datos y redacta."
              if ia_lista else "Ollama no responde. Ábrelo y corre src/ia/comprobar_ia.py")
-    if st.button("Analizar expediente y comparar con BTOUCH", key=f"btn_{ocid}",
+    if st.button("Analizar expediente y comparar con BTOUCH", key=f"btn_{clave_ui}",
                  type="primary"):
         with st.status("Analizando…", expanded=True) as estado:
             def avisar(paso):
@@ -381,8 +423,14 @@ def render(fila: dict, db: Path | str) -> None:
                       f"Se detuvo en: {resultado['paso']}",
                 state="complete" if resultado["ok"] else "error", expanded=False)
         st.session_state[clave] = resultado
+        _guardar_cache(resultado)
 
     resultado = st.session_state.get(clave)
+    if not resultado:
+        resultado = _leer_cache(elegido["filecode"])
+        if resultado:
+            st.caption("Resultado guardado de un análisis anterior de este documento. "
+                       "Pulsa el botón para volver a analizarlo.")
     if not resultado:
         st.caption("El análisis descarga el expediente y lo lee. Puede tardar entre "
                    "unos segundos y varios minutos según el tamaño y si hace falta "
@@ -413,3 +461,85 @@ def render(fila: dict, db: Path | str) -> None:
         st.warning(resultado["aviso_ia"])
     _tabla_resultados(resultado["resultados"])
     _pie_manual()
+
+
+# --------------------------------------------------------------------------- #
+# Procesos VIGENTES: la ficha se consulta al elegir el proceso (sin índice ni paquetes anuales)
+# --------------------------------------------------------------------------- #
+
+def documentos_de_ficha(ficha: dict) -> list[dict]:
+    """Documentos de la ficha del SEACE, del más al menos útil para comparar contra BTOUCH."""
+    from contenedores import clasificar                          # noqa: PLC0415
+    import ficha_seace                                           # noqa: PLC0415
+
+    docs = ficha_seace.documentos(ficha)
+    for f in docs:
+        clase, _, _ = clasificar(f"{f['titulo']} {f['tipo_doc']}")
+        f["clase"] = clase
+        f["prioridad"] = PRIORIDAD_PANEL.get(clase, 20)
+    return sorted(docs, key=lambda f: -f["prioridad"])
+
+
+def _capa1_vigente(fila: dict) -> None:
+    import pandas as pd                                          # noqa: PLC0415
+
+    c = st.columns([2, 1, 1, 1])
+    c[0].markdown(f"**{(fila.get('entidad') or '—')[:70]}**")
+    c[0].caption(fila.get("nomenclatura") or "")
+    c[1].metric("Cierra inscripción", str(fila.get("fecha_fin_inscripcion") or "—")[:10])
+    c[2].metric("Presentación", str(fila.get("fecha_presentacion") or "—")[:10])
+    vr = fila.get("valor_referencial")
+    c[3].metric("Valor referencial", "—" if vr is None or pd.isna(vr) else f"S/ {float(vr):,.0f}")
+    if fila.get("enlace"):
+        st.markdown(f"[Ver la ficha en SEACE]({fila['enlace']})")
+    st.caption(str(fila.get("descripcion") or fila.get("objeto") or "")[:300])
+
+
+def render_vigente(fila: dict) -> None:
+    """Panel de un proceso de la lista de vigentes. Al mostrarlo solo se consulta su ficha
+    (unos KB); el documento se descarga únicamente cuando se pulsa «Analizar»."""
+    import pandas as pd                                          # noqa: PLC0415
+    import ficha_seace as fs                                     # noqa: PLC0415
+
+    _capa1_vigente(fila)
+    st.divider()
+
+    try:
+        idp = int(fila.get("id"))
+    except (TypeError, ValueError):
+        st.error("Este proceso no tiene un identificador válido en la lista.")
+        return
+
+    forzar = st.button("↻ Refrescar ficha", key=f"fic_{idp}",
+                       help="La ficha se guarda 24 horas. Refréscala si esperas documentos nuevos.")
+    try:
+        with st.spinner("Consultando la ficha de este proceso en el SEACE…"):
+            ficha = fs.obtener_ficha(idp, forzar=forzar)
+    except fs.FichaError as e:
+        st.error(str(e))
+        st.caption("Puedes abrir la ficha a mano con el enlace de arriba.")
+        return
+    if ficha.get("_desactualizada"):
+        st.warning("No hay conexión con el SEACE: se muestra la última copia guardada de la ficha.")
+
+    its = fs.items(ficha)
+    if its:
+        with st.expander(f"Qué se compra ({len(its)} ítem{'s' if len(its) != 1 else ''})"):
+            st.dataframe(pd.DataFrame(its).rename(columns={
+                "nro": "N.º", "descripcion": "Descripción", "producto": "Producto (catálogo)",
+                "cantidad": "Cantidad", "unidad": "Unidad", "departamento": "Departamento"}),
+                use_container_width=True, hide_index=True)
+    crono = fs.cronograma(ficha)
+    if crono:
+        with st.expander("Cronograma del proceso"):
+            st.dataframe(pd.DataFrame(crono).rename(columns={
+                "etapa": "Etapa", "inicio": "Desde", "fin": "Hasta"}),
+                use_container_width=True, hide_index=True)
+
+    docs = documentos_de_ficha(ficha)
+    if not docs:
+        st.info("Este proceso todavía no publica documentos descargables. Las bases aparecen en la "
+                "etapa de convocatoria; vuelve a revisar más tarde.")
+        return
+    st.caption(f"{len(docs)} documento(s) publicado(s). Solo se descarga el que analices.")
+    _seccion_analisis(docs, f"v{idp}")

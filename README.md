@@ -155,8 +155,10 @@ python src/descargar_documento.py --filecode <uuid> --extraer tmp/exp1
 python src/contenedores.py --diagnostico      # con qué se pueden abrir los .rar
 ```
 
-9) Indexar los documentos del expediente, una sola vez por año. Deja la tabla
-   `documentos` en la base para que el tablero responda al instante:
+9) (Opcional) Indexar los documentos del expediente del histórico, una sola vez por
+   año. Deja la tabla `documentos` en `analisis.db`. **El Comparador BTOUCH ya no
+   lo necesita** (consulta cada proceso vigente por separado, ver más abajo); sirve
+   solo si quieres analizar procesos históricos con `panel_expediente.render`:
 ```bash
 python src/indexar_documentos.py --anios 2025 2026
 ```
@@ -207,7 +209,8 @@ Qué hace cada módulo nuevo:
 - `src/extractor.py` — saca el requerimiento técnico en 18 campos
 - `src/fichas.py` — fichas estructuradas de BTOUCH y competidores
 - `src/evaluar_licitacion.py` — compara exigido contra ficha y dictamina
-- `src/indexar_documentos.py` — vuelca los documentos del OCDS a la tabla `documentos`
+- `src/indexar_documentos.py` — (opcional) vuelca los documentos del OCDS a la tabla `documentos`
+- `src/ficha_seace.py` — consulta la ficha de UN proceso vigente (documentos, ítems, cronograma) con caché de 24 h
 - `src/postores.py` — historial de participantes por empresa, con RUC
 - `src/reporte_competencia.py` — libro Excel de inteligencia competitiva a
   partir de la tabla `postores`, con cobertura por año y coincidencias entre
@@ -313,22 +316,27 @@ licencia CC BY 4.0.
 
 
 
-## El panel de comparación dentro del tablero
+## El Comparador BTOUCH dentro del tablero
 
-En la pestaña **Histórico de adjudicaciones**, al pie, hay un selector de
-proceso y un panel con dos capas.
+El botón **Comparador BTOUCH** trabaja sobre los procesos **vigentes del año en curso**
+(a los que todavía se puede postular). No descarga paquetes anuales ni necesita un
+índice previo:
 
-La primera aparece al instante y sale de la base: entidad, fecha, monto
-adjudicado, proveedor ganador, categoría y enlace a la ficha del SEACE.
+1. **La lista** sale de la tabla `vigentes` (oportunidades del SEACE, unos pocos MB),
+   filtrada al año en curso y al rubro de pantallas y pizarras (con la opción de ver
+   todos). Se renueva con **🔄 Actualizar lista**, o con `iniciar.bat vigentes`; una
+   vez por semana alcanza. Los procesos que cierran antes aparecen arriba.
+2. **Al elegir un proceso** se consulta solo su ficha en el SEACE (unos KB): qué se
+   compra, el cronograma y los documentos publicados. La ficha se guarda 24 horas en
+   `data/cache_fichas/`. Si no hay conexión se usa la última copia.
+3. **El documento** se descarga únicamente al pulsar **Analizar expediente y comparar
+   con BTOUCH**: se abre sea cual sea su formato, se lee —con reconocimiento óptico si
+   hace falta—, se extrae el requerimiento técnico y se compara contra las fichas de
+   BTOUCH y de la competencia. El resultado se guarda en `data/cache_analisis/` para no
+   repetirlo.
 
-La segunda está detrás del botón **Analizar expediente y comparar con BTOUCH**.
-Descarga el documento, lo abre sea cual sea su formato, lo lee —con
-reconocimiento óptico si hace falta—, extrae el requerimiento técnico y lo
-compara contra las fichas de BTOUCH y de la competencia. Puede tardar de unos
-segundos a varios minutos y el resultado queda guardado en la sesión.
-
-Requiere haber corrido `python src/indexar_documentos.py` al menos una vez; si
-no, el panel lo avisa en lugar de fallar.
+La ficha de un proceso sale de `https://prod4.seace.gob.pe:8086/api/oportunidades/fichaProceso/idProceso/{id}`
+(`src/ficha_seace.py`), el mismo servicio que usa la ficha pública del portal.
 
 Conviene saber que este análisis **falla seguido, y no por un defecto del
 panel**: solo cuatro de cada veintitrés expedientes entregan un requerimiento

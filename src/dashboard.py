@@ -660,78 +660,88 @@ def vista_bnacion():
 # VISTA: COMPARADOR BTOUCH
 # ================================================================
 def vista_comparador():
+    import subprocess, sys
     import panel_expediente as pe
 
     st.title("🟢 Comparador BTOUCH")
     st.caption(
-        "Toma lo que una entidad EXIGIO en sus bases y lo compara, campo por campo, "
-        "contra las fichas de BTOUCH y de la competencia. Responde si BTOUCH podia "
-        "presentarse a ese proceso y con que modelo, y que marcas quedaban fuera por "
-        "las especificaciones pedidas."
+        "Elige un proceso de la lista: el sistema consulta SOLO ese expediente en el SEACE, "
+        "toma lo que la entidad EXIGIO y lo compara, campo por campo, contra las fichas de "
+        "BTOUCH y de la competencia. No descarga paquetes anuales: la lista es liviana y el "
+        "documento se baja unicamente cuando pulsas Analizar."
     )
 
+    anio = datetime.now().year
     db = ruta_db()
-    if not pe.hay_indice(db):
-        st.warning("Todavia no hay documentos indexados.")
-        st.code("python src/extract.py --refrescar\npython src/indexar_documentos.py",
-                language="bash")
+
+    # --- lista: se renueva a demanda (con una vez por semana alcanza) ---------------
+    c1, c2 = st.columns([4, 1])
+    if c2.button("🔄 Actualizar lista", key="cmp_act",
+                 help="Consulta las oportunidades vigentes del SEACE (unos segundos, pocos MB)."):
+        with st.spinner("Consultando oportunidades vigentes en el SEACE..."):
+            try:
+                r = subprocess.run([sys.executable, os.path.join(BASE, "src", "vigentes.py")],
+                                   capture_output=True, text=True, timeout=300, cwd=BASE)
+                if r.returncode == 0:
+                    c1.success((r.stdout.strip().splitlines() or ["Lista actualizada."])[-1])
+                else:
+                    c1.error("No se pudo actualizar la lista: "
+                             + (r.stderr.strip().splitlines() or ["error desconocido"])[-1])
+            except subprocess.TimeoutExpired:
+                c1.error("El SEACE tardo demasiado en responder. Intenta de nuevo en unos minutos.")
+
+    df = leer("vigentes")
+    if df.empty:
+        st.warning("Todavia no hay procesos en la lista. Pulsa «Actualizar lista» o corre:  python src/vigentes.py")
         return
 
-    # Las dos tablas viven en bases distintas: licitaciones.db se versiona y
-    # analisis.db no. Se adjunta la de analisis para poder cruzarlas.
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    analisis = pe.ruta_analisis(db)
-    if analisis != str(db):
-        con.execute(f"ATTACH DATABASE 'file:{analisis}?mode=ro' AS an")
-        fuente = "an.documentos"
-    else:
-        fuente = "documentos"
-    procesos = pd.read_sql(
-        f"SELECT l.*, d.categoria AS cat_doc, COUNT(*) AS n_docs "
-        f"FROM {fuente} d JOIN licitaciones l ON l.ocid = d.ocid "
-        f"GROUP BY l.ocid ORDER BY l.fecha DESC", con)
-    con.close()
+    actualizada = (datetime.fromtimestamp(os.path.getmtime(db)).strftime("%d/%m/%Y %H:%M")
+                   if os.path.exists(db) else "—")
+    c1.caption(f"Procesos convocados en {anio}. Base actualizada: {actualizada}.")
 
-    if procesos.empty:
-        st.info("Ningun proceso del historico tiene documentos indexados todavia.")
-        return
+    # --- solo el año en curso y solo el rubro ----------------------------------------
+    conv = pd.to_datetime(df["fecha_convocatoria"], dayfirst=True, errors="coerce", format="mixed")
+    df = df[conv.dt.year == anio].copy()
 
-    cats = sorted(x for x in procesos["cat_doc"].dropna().unique() if x)
-    por_defecto = ["INTERACTIVA"] if "INTERACTIVA" in cats else []
-    c1, c2 = st.columns([2, 3])
-    sel_cat = c1.multiselect("Categoria de producto", cats, default=por_defecto,
-                             key="cmp_cat",
-                             help="Por defecto solo paneles interactivos, que es "
-                                  "donde compite BTOUCH.")
-    txt = c2.text_input("Buscar en entidad, nomenclatura u objeto", key="cmp_txt")
+    claves_cfg = cfg().get("palabras_clave", [])
+    if isinstance(claves_cfg, dict):
+        claves_cfg = [t for terms in claves_cfg.values() for t in terms]
+    excluir = [_norm(e) for e in cfg().get("palabras_excluir", [])]
+    df["_texto"] = (df["objeto"].fillna("") + " " + df["descripcion"].fillna("") + " " +
+                    df["nomenclatura"].fillna("") + " " + df["entidad"].fillna("")).apply(_norm)
+    df["Etiqueta"] = df["_texto"].apply(lambda t: etiqueta_de(t, claves_cfg, excluir))
 
-    f = procesos
-    if sel_cat:
-        f = f[f["cat_doc"].isin(sel_cat)]
+    f1, f2 = st.columns([3, 2])
+    txt = f1.text_input("Buscar en entidad, nomenclatura o descripcion", key="cmp_txt")
+    ver_todos = f2.checkbox("Ver todos los procesos del año (no solo pantallas y pizarras)", key="cmp_todos")
+
+    f = df if ver_todos else df[df["Etiqueta"].notna()]
     if txt:
-        campos = (f["entidad"].fillna("") + " " + f["nomenclatura"].fillna("")
-                  + " " + f["objeto"].fillna("")).str.lower()
+        campos = (f["entidad"].fillna("") + " " + f["nomenclatura"].fillna("") + " " +
+                  f["descripcion"].fillna("")).str.lower()
         f = f[campos.str.contains(txt.lower(), regex=False)]
 
+    est = f["fecha_fin_inscripcion"].apply(estado_por_fecha)
+    f = f.assign(_estado=[e[0] for e in est], _dias=[e[1] for e in est])
+    # primero los que todavia se pueden atender (el que cierra antes, arriba); los vencidos al final
+    f["_orden"] = f["_dias"].apply(lambda d: 99999 if d is None or pd.isna(d) else (d if d >= 0 else 5000 - d))
+    f = f.sort_values("_orden").reset_index(drop=True)
+
     k1, k2 = st.columns(2)
-    k1.metric("Procesos analizables", len(f))
-    k2.metric("Documentos disponibles", int(f["n_docs"].sum()) if len(f) else 0)
-
-    if not len(f):
-        st.info("Ningun proceso coincide con el filtro.")
+    k1.metric("Procesos en la lista", len(f))
+    k2.metric(f"Convocados en {anio} (todos los rubros)", len(df))
+    if f.empty:
+        st.info("Ningun proceso coincide. Prueba «Ver todos los procesos del año» o cambia la busqueda.")
         return
-
-    f = f.reset_index(drop=True)
 
     def _etiqueta(i):
         r = f.loc[i]
-        return (f"{str(r['fecha'])[:10]} - {str(r.get('nomenclatura') or '')[:26]} - "
-                f"{str(r.get('entidad') or '')[:40]} - {int(r['n_docs'])} doc(s)")
+        return (f"{r['_estado']} · {str(r.get('nomenclatura') or '')[:26]} · "
+                f"{str(r.get('entidad') or '')[:38]} · cierra {str(r.get('fecha_fin_inscripcion') or '—')[:10]}")
 
-    j = st.selectbox("Proceso a analizar", range(len(f)), format_func=_etiqueta,
-                     key="cmp_proceso")
+    j = st.selectbox("Proceso a analizar", range(len(f)), format_func=_etiqueta, key="cmp_proceso")
     st.divider()
-    pe.render(f.loc[j].to_dict(), db)
+    pe.render_vigente(f.loc[j].to_dict())
 
 
 def vista_ia():

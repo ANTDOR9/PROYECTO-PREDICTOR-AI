@@ -113,3 +113,7 @@ _venv_viejo_borrar
 
 # Excel de estudio de mercado (inteligencia competitiva): confidencial, no se versiona
 data/fuentes/
+
+# Comparador: fichas del SEACE y analisis guardados (se regeneran solos)
+data/cache_fichas/
+data/cache_analisis/

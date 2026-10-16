@@ -1,0 +1,55 @@
+{
+ "nidExpediente": 1252424,
+ "nomenclatura": "LP-SM-14-2026-MDCC-1",
+ "tipoObjeto": "Bien",
+ "descripcionObjeto": "ADQUISICIÓN DE PANTALLAS INTERACTIVAS E INSTALACIÓN A TODO COSTO PARA LOS IOARR CON CUI 2717293 Y 2717328",
+ "valorReferencial": "---",
+ "fechaPublicacion": "23/09/2026 10:28",
+ "listaCronograma": [
+  {
+   "descripcionEtapa": "Convocatoria",
+   "fechaInicio": "23/09/2026",
+   "fechaFin": "23/09/2026",
+   "nombreEtapa": "CONVOCATORIA"
+  },
+  {
+   "descripcionEtapa": "Registro de participantes(Electronica)",
+   "fechaInicio": "24/09/2026",
+   "fechaFin": "25/10/2026",
+   "nombreEtapa": "REGISTRO DE PARTICIPANTES"
+  },
+  {
+   "descripcionEtapa": "Presentación de propuestas(Electronica)",
+   "fechaInicio": "26/10/2026",
+   "fechaFin": "26/10/2026",
+   "nombreEtapa": "PRESENTACIÓN DE PROPUESTAS"
+  }
+ ],
+ "entidadConvocante": {
+  "nombreOrganismo": "MUNICIPALIDAD DISTRITAL DE CERRO COLORADO"
+ },
+ "listaDocumentos": [
+  {
+   "idCodigoDocumento": 24831474986106200,
+   "tipoDocumento": "Bases Administrativas",
+   "nombreArchivo": "Bases LP142026MDCC1 _ Adquisicion pantallas.pdf",
+   "tamanoArchivo": "1458",
+   "extension": "pdf",
+   "codigoAlfresco": "916e60a9-2f56-482d-8b2b-b80d0bde85e0",
+   "fechaPublicacion": "23/09/2026 10:28",
+   "fechaCreacion": null,
+   "etapa": "Convocatoria"
+  }
+ ],
+ "listaItems": [
+  {
+   "codigoCubso": "4321190600392542",
+   "descripcion": "ADQUISICIÓN DE PANTALLAS INTERACTIVAS E INSTALACIÓN A TODO COSTO PARA LOS IOARR CON CUI 2717293 Y 2717328",
+   "cantidad": "1",
+   "descripcionCubso": "PANTALLA INTERACTIVA MULTITACTIL LED DE 86 in APROX",
+   "unidadMedia": "Unidad",
+   "departamento": "AREQUIPA",
+   "nroItem": "1"
+  }
+ ]
+}
