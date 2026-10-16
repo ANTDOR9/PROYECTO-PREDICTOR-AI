@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cliente import RAIZ, chat  # noqa: E402
+import conocimiento  # noqa: E402
 
 DB_LIC = RAIZ / "data" / "licitaciones.db"
 DB_AN = RAIZ / "data" / "analisis.db"
@@ -226,6 +227,11 @@ def preguntar(pregunta: str, con: sqlite3.Connection | None = None, cfg: dict | 
         directo = _rivales_de_proceso(con, pregunta)
         if directo:
             return directo
+        # «¿qué es X?», «¿quién ofrece tal marca?», ranking general: no son preguntas de datos,
+        # se responden desde la base de conocimiento (sin SQL inventado por el modelo).
+        saber = conocimiento.responder(con, pregunta, cfg)
+        if saber:
+            return saber
         ej = ejemplos_para(pregunta)
         bloque = ""
         if ej:

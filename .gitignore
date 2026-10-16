@@ -110,3 +110,6 @@ data/cache_ia_clasificacion.json
 data/graficos/
 _venv_viejo_borrar
 *.zip
+
+# Excel de estudio de mercado (inteligencia competitiva): confidencial, no se versiona
+data/fuentes/

@@ -83,7 +83,7 @@ def render():
     # ------------------------------------------------------------------ preguntar
     with tab_pregunta:
         q = st.text_input("Pregunta sobre tus licitaciones y postores",
-                          placeholder="¿Qué empresas se presentaron más veces en Arequipa?")
+                          placeholder="¿Qué es Brighter? · ¿Quién es STANDAR S.R.L.? · ¿Qué empresas se presentaron más veces en Arequipa?")
         if st.button("Consultar", type="primary", disabled=not (listo and q)):
             with st.spinner("Pensando…"):
                 try:
@@ -107,13 +107,20 @@ def render():
                              use_container_width=True, hide_index=True)
                 if r["truncado"]:
                     st.caption(f"Se muestran las primeras {consultas.MAX_FILAS} filas.")
-                with st.expander("Ver la consulta SQL"):
-                    st.code(r["sql"], language="sql")
-                    st.caption(r.get("nota", ""))
-                c1, c2 = st.columns(2)
-                if c1.button("✅ Correcta: aprender esta consulta"):
-                    st.success("Guardada." if consultas.aprender(pregunta, r["sql"]) else "Ya la tenía.")
-                c2.caption("Las consultas confirmadas se usan como ejemplo en preguntas parecidas.")
+                if r.get("origen") == "conocimiento":
+                    # no hubo SQL: se respondió desde el glosario, las marcas o el ranking de empresas
+                    st.caption("Respuesta de la base de conocimiento (glosario, marcas y empresas del "
+                               "estudio de mercado). No usó SQL.")
+                    if r.get("nota"):
+                        st.caption(r["nota"])
+                else:
+                    with st.expander("Ver la consulta SQL"):
+                        st.code(r["sql"], language="sql")
+                        st.caption(r.get("nota", ""))
+                    c1, c2 = st.columns(2)
+                    if c1.button("✅ Correcta: aprender esta consulta"):
+                        st.success("Guardada." if consultas.aprender(pregunta, r["sql"]) else "Ya la tenía.")
+                    c2.caption("Las consultas confirmadas se usan como ejemplo en preguntas parecidas.")
 
     # --------------------------------------------------------------------- alerta
     with tab_alerta:
