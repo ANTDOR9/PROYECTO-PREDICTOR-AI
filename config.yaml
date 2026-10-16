@@ -1,0 +1,93 @@
+# ============================================================
+#  Monitor de Licitaciones - Brighter Peru
+#  Configuracion editable SIN tocar codigo.
+#  Modifica las palabras clave y filtros aqui.
+# ============================================================
+
+# Fuente de datos OCDS (OECE - ex OSCE)
+fuente:
+  # URL de descarga por anio. {anio} se reemplaza automaticamente.
+  url_anual: "https://data.open-contracting.org/en/publication/135/download?name={anio}.jsonl.gz"
+  anios: [2025, 2026]   # anios a extraer para el historico (Fase 1)
+
+# Palabras clave: si el titulo/objeto/items contiene ALGUNA, el registro se incluye.
+# Todo en minusculas y sin tildes (el extractor normaliza antes de comparar).
+palabras_clave:
+  - "pantalla interactiva"
+  - "panel interactivo"
+  - "pizarra interactiva"
+  - "pizarra digital"
+  - "monitor interactivo"
+  - "pantalla tactil"
+  - "pantalla led"
+  - "pantalla digital"
+  - "senalizacion digital"
+  - "video wall"
+  - "videowall"
+  - "kiosco interactivo"
+  - "kiosco digital"
+  - "totem interactivo"
+  - "totem multimedia"
+  - "totem tactil"
+  - "equipo audiovisual"
+  - "equipamiento audiovisual"
+  - "sistema audiovisual"
+  - "proyector multimedia"
+  - "proyector interactivo"
+  - "videoproyector"
+  - "sistema de videoconferencia"
+  - "televisor"
+  - "smart tv"
+  - "pantalla publicitaria"
+  - "pantalla gigante"
+  - "pizarra electronica"
+
+# Palabras que DESCARTAN un registro aunque tenga palabra clave (evita falsos positivos).
+palabras_excluir:
+  - "protector de pantalla"
+  - "mica de pantalla"
+  - "lamina protectora"
+  - "luminaria"
+  - "optotipo"
+  - "totem publicitario"
+  - "campo ferial"
+  - "estand"
+  - "presa"
+  - "impermeabilizacion"
+  - "drone"
+  - "vehiculo aereo"
+
+# Filtros por defecto del dashboard (el usuario puede cambiarlos en pantalla).
+filtros:
+  monto_minimo: 0          # soles
+  departamentos: []        # vacio = todos
+
+salida:
+  base_datos: "data/licitaciones.db"
+  excel: "data/licitaciones_export.xlsx"
+
+# --- Fuente Peru Compras (Catalogos Electronicos / Acuerdos Marco) ---
+# Canal DISTINTO a SEACE: compras directas por catalogo. Se filtra por
+# Acuerdo Marco (categoria), no por palabra clave, porque esta fuente
+# no trae la descripcion del producto, solo datos de la orden.
+# Codigos sacados en vivo del <select> del formulario (agosto 2026).
+fuente_perucompras:
+  acuerdos_marco:
+    - codigo: "322-BIENES"
+      nombre: "EQUIPOS MULTIMEDIA Y ACCESORIOS"
+  fecha_inicio: "2024-01-01"
+  fecha_fin: "2026-12-31"
+
+fuente_petroperu:
+  url: "https://convocatorias.petroperu.com.pe/avisos-de-contratacion-futura"
+  paginas_max: 40  # tope de seguridad; se detiene antes si ya no hay filas nuevas
+
+# --- IA local (Ollama) ---
+# Todo corre en tu equipo: ningun dato sale a la nube.
+# Instalar: https://ollama.com  y luego  `ollama pull qwen2.5:7b-instruct`
+ia_local:
+  url: "http://localhost:11434"
+  modelo: "auto"   # "auto" usa uno ya descargado; o fija uno, ej. "qwen2.5:7b-instruct"
+  temperatura: 0.0                # 0 = respuestas reproducibles
+  timeout_s: 300
+  contexto_tokens: 8192

@@ -1,0 +1,16 @@
+pandas>=2.0
+pyyaml>=6.0
+requests>=2.31
+openpyxl>=3.1
+streamlit>=1.30
+beautifulsoup4>=4.12
+
+# Pipeline de especificaciones (src/contenedores.py, ocr.py, buscar_actas.py).
+# El dashboard y los extractores funcionan sin estos dos.
+pypdf>=4.0
+pdfplumber>=0.11
+
+# Prototipo de IA / ML
+scikit-learn>=1.3
+scipy>=1.10
+numpy>=1.24

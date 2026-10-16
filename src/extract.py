@@ -1,0 +1,430 @@
+"""
+Extractor de licitaciones OCDS - Brighter Peru
+-----------------------------------------------
+Lee datos abiertos OCDS del OECE (ex OSCE), filtra los procesos
+relacionados con pantallas interactivas y equipamiento audiovisual,
+deduplica y los guarda en una base SQLite.
+
+Uso:
+    python src/extract.py                 # descarga los anios de config.yaml
+    python src/extract.py --archivo x.jsonl   # usa un archivo local (o .jsonl.gz)
+"""
+import argparse, gzip, io, json, os, re, sqlite3, sys, unicodedata
+from datetime import datetime
+
+import yaml
+
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def cargar_config():
+    with open(os.path.join(BASE, "config.yaml"), encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+def normaliza(texto):
+    """minusculas, sin tildes, para comparar palabras clave."""
+    if not texto:
+        return ""
+    t = unicodedata.normalize("NFKD", str(texto))
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return t.lower()
+
+def abrir_lineas(ruta_o_stream):
+    """Devuelve un iterador de lineas de texto desde un .jsonl o .jsonl.gz."""
+    if ruta_o_stream.endswith(".gz"):
+        with gzip.open(ruta_o_stream, "rt", encoding="utf-8") as f:
+            for linea in f:
+                yield linea
+    else:
+        with open(ruta_o_stream, "rt", encoding="utf-8") as f:
+            for linea in f:
+                yield linea
+
+def descargar_anio(url_tpl, anio, destino):
+    import requests
+    url = url_tpl.format(anio=anio)
+    print(f"  Descargando {anio} ...")
+    r = requests.get(url, stream=True, timeout=120)
+    r.raise_for_status()
+    with open(destino, "wb") as f:
+        for chunk in r.iter_content(chunk_size=1 << 16):
+            f.write(chunk)
+    return destino
+
+def asegurar_paquete(cfg, anio, destino, dias=7, forzar=False):
+    """
+    Devuelve la ruta del paquete del año, bajándolo si hace falta.
+
+    Antes, la condición era `if not os.path.exists(destino)`: una vez
+    descargado, el archivo no se renovaba nunca y nadie lo decía. El efecto
+    combinado con la purga es que una corrida podía REDUCIR el histórico, al
+    reconstruirlo desde una foto de hace semanas.
+    """
+    import time
+
+    if os.path.exists(destino) and not forzar:
+        edad = (time.time() - os.path.getmtime(destino)) / 86400
+        if edad <= dias:
+            print(f"  {anio}: usando el paquete local "
+                  f"(descargado hace {edad:.0f} día(s)).")
+            return destino
+        print(f"  {anio}: el paquete local tiene {edad:.0f} días; se renueva.")
+    descargar_anio(cfg["fuente"]["url_anual"], anio, destino)
+    return destino
+
+
+def textos_candidatos(release):
+    """Devuelve una LISTA de textos candidatos por separado (no un solo bloque
+    pegado), para que el matcher revise cada uno de forma independiente.
+
+    BUG REAL encontrado con datos reales (ago-2026): un proceso puede traer
+    decenas de items sin relacion entre si (ej. una compra de 54 insumos
+    medicos). Si se pega todo el texto en un solo bloque y se busca "todas
+    las palabras de la clave en algun lugar del texto", dos items DISTINTOS
+    y sin relacion pueden combinarse: uno que menciona "...para monitor" y
+    otro que dice "aposito INTERACTIVO en forma de gel" -- ninguno tiene que
+    ver con Brighter, pero juntos calzan la clave "monitor interactivo".
+    Por eso ahora se revisa CADA texto (titulo+descripcion general, y cada
+    item por separado) de forma AISLADA -- una clave debe calzar dentro de
+    un mismo texto, no repartida entre items distintos.
+    """
+    tender = release.get("tender") or {}
+    candidatos = []
+
+    general = " ".join(p for p in (tender.get("title", ""), tender.get("description", "")) if p)
+    if general.strip():
+        candidatos.append(normaliza(general))
+
+    for it in (tender.get("items") or []):
+        d = it.get("description", "")
+        if d:
+            candidatos.append(normaliza(d))
+
+    for aw in (release.get("awards") or []):
+        t = aw.get("title", "")
+        if t:
+            candidatos.append(normaliza(t))
+        for it in (aw.get("items") or []):
+            d = it.get("description", "")
+            if d:
+                candidatos.append(normaliza(d))
+
+    return candidatos
+
+def coincide_alguno(candidatos, claves, excluir):
+    """True si ALGUNO de los textos candidatos (ya aislados) calza una clave."""
+    return any(coincide(c, claves, excluir) for c in candidatos)
+
+def coincide(texto_norm, claves, excluir):
+    if any(x in texto_norm for x in excluir):
+        return False
+    # Una clave calza si TODAS sus palabras (>=4 letras) aparecen en el texto,
+    # COMO PALABRA COMPLETA (\b...\b), no como subcadena.
+    # BUG REAL encontrado con datos reales (ago-2026): sin \b, la clave
+    # "monitor led" pescaba "monitoreo ambiental" (porque "monitor" es
+    # subcadena literal de "monitoreo") -- falso positivo puro.
+    # Comparar por palabra completa (no la frase entera) sigue tolerando
+    # plurales: "pantalla interactiva" calza en "pantallas interactivas"
+    # porque el plural empieza igual y "\b" no exige fin de palabra exacto
+    # aqui -- se usa una version simple que exige inicio de palabra.
+    for clave in claves:
+        tokens = [t for t in clave.split() if len(t) >= 4]
+        if tokens and all(re.search(rf"\b{re.escape(t)}(?:es|s)?\b", texto_norm) for t in tokens):
+            return True
+    return False
+
+def departamento(release):
+    for p in (release.get("parties") or []):
+        addr = (p.get("address") or {})
+        reg = addr.get("region")
+        if reg:
+            return reg
+    return ""
+
+# Marcas conocidas del rubro (pantallas/audiovisual/interactivos). Best-effort:
+# no hay forma de validar contra un ejemplo real de un registro, asi que se arma
+# una lista de marcas comunes en el mercado peruano de este rubro y se busca
+# coincidencia literal en la descripcion. Puede fallar (marca no listada, o
+# escrita distinto) -- es una PREDICCION, no una extraccion garantizada.
+MARCAS_CONOCIDAS = [
+    "samsung", "lg", "benq", "epson", "viewsonic", "promethean", "smart",
+    "newline", "hisense", "tcl", "sony", "panasonic", "optoma", "sharp",
+    "nec", "philips", "xiaomi", "infocus", "coretec", "clevertouch",
+    "avocor", "boxlight", "vivitek", "acer", "asus", "hitachi", "planar",
+]
+
+def detecta_marca(texto_norm):
+    """Busca marcas conocidas en el texto ya normalizado (sin tildes, minusc)."""
+    for marca in MARCAS_CONOCIDAS:
+        if re.search(rf"\b{re.escape(marca)}\b", texto_norm):
+            return marca.upper()
+    return ""
+
+from urllib.parse import quote
+
+# ---------------------------------------------------------------------------
+# Enlace al proceso
+#
+# ANTES se armaba una URL de BUSQUEDA (/busqueda?search=...&year=...). Dejaba al
+# usuario en la barra de resultados, no en el proceso, y el `year` salia de
+# release.date -- que no es el anio de convocatoria. De ahi venia tener que
+# probar a mano el anio anterior para encontrar el proceso.
+#
+# HALLAZGO: cuando el sufijo del OCID es un numero simple, ese numero ES el
+# idProceso de SEACE. Verificado cruzando `licitaciones` y `vigentes` por
+# nomenclatura: donde un proceso aparece en ambas tablas, el sufijo del OCID
+# coincide exactamente con el id que devuelve la API de Oportunidades.
+#     ocds-dgv273-seacev3-1247873 -> idProceso 1247873
+# Eso permite enlazar a la ficha de SEACE, que es donde viven los DOCUMENTOS
+# del expediente, y no solo a la vista de datos del portal OCDS.
+#
+# Cobertura medida sobre los 436 registros del historico:
+#     74% ficha SEACE (ocid numerico) | 26% pagina del proceso OCDS
+#      0% queda como busqueda imprecisa (antes: 100%)
+# ---------------------------------------------------------------------------
+
+PREFIJO_OCID = "ocds-dgv273-seacev3-"
+
+
+def id_seace(ocid):
+    """idProceso de SEACE si el OCID lo contiene, si no None.
+
+    Solo los OCID de sufijo numerico lo llevan. Los compuestos
+    (ej. '2025-1666-22', que es anio-entidad-secuencia) no son identificador
+    de proceso y no sirven para la ficha.
+    """
+    if not ocid:
+        return None
+    sufijo = (ocid or "").replace(PREFIJO_OCID, "").strip()
+    return sufijo if re.fullmatch(r"\d+", sufijo) else None
+
+
+def enlace_proceso(ocid, nomenclatura="", fecha_iso=""):
+    """Mejor enlace disponible, en orden de precision."""
+    idp = id_seace(ocid)
+    if idp:
+        # Ficha del proceso en SEACE: misma forma que ya usa vigentes.py.
+        return f"https://prod4.seace.gob.pe/openegocio/#/ficha/idProceso/{idp}"
+
+    if ocid:
+        # Pagina del proceso en contrataciones abiertas (datos, sin documentos).
+        return f"https://contratacionesabiertas.oece.gob.pe/proceso/{ocid}"
+
+    # Ultimo recurso: busqueda. Solo si no hay OCID.
+    texto = (nomenclatura or "").strip()[:80]
+    if not texto:
+        return "https://contratacionesabiertas.oece.gob.pe/"
+    qs = f"search={quote(texto)}"
+    anio = (fecha_iso or "")[:4]
+    if anio:
+        qs += f"&year={anio}"
+    return f"https://contratacionesabiertas.oece.gob.pe/busqueda?{qs}"
+
+
+# Alias por compatibilidad con llamadas antiguas.
+def enlace_busqueda_oece(nomenclatura, fecha_iso):
+    return enlace_proceso(None, nomenclatura, fecha_iso)
+
+
+PREFIJOS_TIPO = {
+    "LP": "Licitación Pública", "CP": "Concurso Público",
+    "AS": "Adjudicación Simplificada", "SIE": "Subasta Inversa Electrónica",
+    "CD": "Contratación Directa", "AMC": "Adjudicación de Menor Cuantía",
+    "CS": "Comparación de Precios", "LPI": "Licitación Pública Internacional",
+}
+
+def tipo_de_proceso(nomenclatura, tender):
+    # 1) el propio OCDS a veces trae el nombre legible del metodo.
+    t = (tender.get("procurementMethodDetails") or "").strip()
+    if t:
+        return t
+    # 2) si no, se deriva del PREFIJO de la nomenclatura (ej "LP-ABR-61-2026..." -> LP).
+    m = re.match(r"([A-Z]{2,4})[-/]", nomenclatura or "")
+    if m:
+        return PREFIJOS_TIPO.get(m.group(1), m.group(1))
+    return ""
+
+def extrae_registro(release):
+    """Aplana un compiled release OCDS a una fila util para Brighter."""
+    tender = release.get("tender") or {}
+    buyer = release.get("buyer") or {}
+    awards = release.get("awards") or []
+
+    # proveedor ganador y monto adjudicado (toma el primer award activo)
+    proveedor = ""
+    monto_adj = None
+    for aw in awards:
+        sups = aw.get("suppliers") or []
+        if sups:
+            proveedor = sups[0].get("name", "")
+        val = (aw.get("value") or {})
+        if val.get("amount") is not None:
+            monto_adj = val.get("amount")
+        if proveedor:
+            break
+
+    monto_ref = ((tender.get("value") or {}).get("amount"))
+    cantidad = None
+    items = tender.get("items") or []
+    if items and items[0].get("quantity") is not None:
+        cantidad = items[0].get("quantity")
+
+    precio_unit = None
+    if monto_adj and cantidad:
+        try:
+            precio_unit = round(float(monto_adj) / float(cantidad), 2)
+        except ZeroDivisionError:
+            precio_unit = None
+
+    # BUG REAL encontrado con datos reales (ago-2026): tender.title casi
+    # siempre trae el CODIGO del proceso (ej. "LP-ABR-61-2026-C/MPC-1"), no
+    # una descripcion legible -- la descripcion real y rica en detalle del
+    # producto vive en tender.description. Se guarda el codigo aparte en
+    # 'nomenclatura' y 'objeto' ahora prioriza la descripcion real.
+    nomenclatura = tender.get("title", "")
+    objeto = tender.get("description", "") or nomenclatura
+
+    items_desc = " | ".join(it.get("description", "") for it in items if it.get("description"))
+    marca_detectada = detecta_marca(normaliza(objeto + " " + items_desc))
+
+    return {
+        "ocid": release.get("ocid", ""),
+        "fecha": (release.get("date") or "")[:10],
+        "entidad": buyer.get("name", ""),
+        "departamento": departamento(release),
+        "nomenclatura": nomenclatura,
+        "objeto": objeto,
+        "cantidad": cantidad,
+        "monto_referencial": monto_ref,
+        "monto_adjudicado": monto_adj,
+        "precio_unitario": precio_unit,
+        "proveedor_ganador": proveedor,
+        "marca_detectada": marca_detectada,
+        "estado": (tender.get("status") or ""),
+        "tipo_proceso": tipo_de_proceso(nomenclatura, tender),
+        # Enlace directo: ficha de SEACE cuando el OCID trae el idProceso,
+        # pagina del proceso en contrataciones abiertas en caso contrario.
+        # Ver el bloque de documentacion sobre enlace_proceso() mas arriba.
+        "enlace": enlace_proceso(release.get("ocid", ""), nomenclatura,
+                                 release.get("date") or ""),
+    }
+
+def crea_tabla(con):
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS licitaciones (
+            ocid TEXT PRIMARY KEY,
+            fecha TEXT, entidad TEXT, departamento TEXT, nomenclatura TEXT, objeto TEXT,
+            cantidad REAL, monto_referencial REAL, monto_adjudicado REAL,
+            precio_unitario REAL, proveedor_ganador TEXT, marca_detectada TEXT,
+            estado TEXT, enlace TEXT
+        )""")
+    con.commit()
+    # migracion suave: si la tabla ya existia de una corrida anterior (sin
+    # estas columnas nuevas), se agregan sin perder los datos ya guardados.
+    cols = {r[1] for r in con.execute("PRAGMA table_info(licitaciones)")}
+    for col, tipo in (("nomenclatura", "TEXT"), ("marca_detectada", "TEXT"), ("tipo_proceso", "TEXT")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE licitaciones ADD COLUMN {col} {tipo}")
+    con.commit()
+
+def guarda(con, filas):
+    # ON CONFLICT(ocid) evita duplicados: un proceso = una fila.
+    # IMPORTANTE: se actualizan TODOS los campos (no solo monto/proveedor/estado)
+    # -- si no, una correccion en como se arma un campo (como paso con 'objeto'
+    # y 'nomenclatura') nunca se refleja en registros que ya existian en la DB.
+    con.executemany("""
+        INSERT INTO licitaciones
+        (ocid, fecha, entidad, departamento, nomenclatura, objeto, cantidad, monto_referencial,
+         monto_adjudicado, precio_unitario, proveedor_ganador, marca_detectada, estado, tipo_proceso, enlace)
+        VALUES
+        (:ocid,:fecha,:entidad,:departamento,:nomenclatura,:objeto,:cantidad,:monto_referencial,
+         :monto_adjudicado,:precio_unitario,:proveedor_ganador,:marca_detectada,:estado,:tipo_proceso,:enlace)
+        ON CONFLICT(ocid) DO UPDATE SET
+            fecha=excluded.fecha,
+            entidad=excluded.entidad,
+            departamento=excluded.departamento,
+            nomenclatura=excluded.nomenclatura,
+            objeto=excluded.objeto,
+            cantidad=excluded.cantidad,
+            monto_referencial=excluded.monto_referencial,
+            monto_adjudicado=excluded.monto_adjudicado,
+            precio_unitario=excluded.precio_unitario,
+            proveedor_ganador=excluded.proveedor_ganador,
+            marca_detectada=excluded.marca_detectada,
+            estado=excluded.estado,
+            tipo_proceso=excluded.tipo_proceso,
+            enlace=excluded.enlace
+    """, filas)
+    con.commit()
+
+def procesa_fuente(ruta, cfg, con):
+    claves = [normaliza(k) for k in cfg["palabras_clave"]]
+    excluir = [normaliza(k) for k in cfg.get("palabras_excluir", [])]
+    total, vistos, guardados = 0, set(), []
+    for linea in abrir_lineas(ruta):
+        linea = linea.strip()
+        if not linea:
+            continue
+        total += 1
+        try:
+            rel = json.loads(linea)
+        except json.JSONDecodeError:
+            continue
+        ocid = rel.get("ocid")
+        if not ocid or ocid in vistos:      # dedup por proceso
+            continue
+        if coincide_alguno(textos_candidatos(rel), claves, excluir):
+            vistos.add(ocid)
+            guardados.append(extrae_registro(rel))
+    if guardados:
+        guarda(con, guardados)
+    print(f"  Procesados {total} procesos -> {len(guardados)} relevantes (unicos).")
+    return len(guardados)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--archivo", help="ruta a un .jsonl o .jsonl.gz local")
+    ap.add_argument("--refrescar", action="store_true",
+                    help="volver a descargar los paquetes aunque estén presentes")
+    ap.add_argument("--dias-maximo", type=int, default=7, metavar="N",
+                    help="renovar el paquete si tiene más de N días (por defecto 7)")
+    args = ap.parse_args()
+    cfg = cargar_config()
+    db = os.path.join(BASE, cfg["salida"]["base_datos"])
+    os.makedirs(os.path.dirname(db), exist_ok=True)
+    con = sqlite3.connect(db)
+    crea_tabla(con)
+    # Cada corrida reprocesa TODOS los anios configurados desde cero (no es
+    # incremental), asi que es seguro limpiar la tabla antes de repoblar --
+    # evita que se acumule basura de corridas viejas con matcher/config
+    # desactualizado (ver PROJECT_CONTEXT.md, hallazgo ago-2026).
+    # La purga es correcta —evita arrastrar filas de configuraciones viejas—
+    # pero era silenciosa, y eso la vuelve peligrosa cuando el paquete local
+    # está desactualizado: reconstruye el histórico a partir de una foto vieja
+    # y se lleva por delante los procesos más nuevos. Pasó: una corrida con
+    # paquetes de hace un mes borró 59 licitaciones de agosto a octubre.
+    _antes = con.execute("SELECT COUNT(*) FROM licitaciones").fetchone()[0]
+    con.execute("DELETE FROM licitaciones")
+    con.commit()
+
+    total = 0
+    if args.archivo:
+        total += procesa_fuente(args.archivo, cfg, con)
+    else:
+        for anio in cfg["fuente"]["anios"]:
+            destino = os.path.join(BASE, "data", f"{anio}.jsonl.gz")
+            total += procesa_fuente(
+                asegurar_paquete(cfg, anio, destino,
+                                 dias=args.dias_maximo, forzar=args.refrescar),
+                cfg, con)
+
+    print(f"\nListo. {total} licitaciones relevantes en la base: {db}")
+    if total < _antes:
+        print(f"\nATENCIÓN: antes había {_antes} y ahora hay {total}: "
+              f"se perdieron {_antes - total} filas.")
+        print("Suele significar que los paquetes locales son más viejos que "
+              "los procesos que ya estaban cargados.")
+        print("Volvé a correr con --refrescar para bajarlos de nuevo.")
+    con.close()
+
+if __name__ == "__main__":
+    main()

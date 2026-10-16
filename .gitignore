@@ -1,0 +1,112 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Datos regenerables: se obtienen corriendo los extractores, no se versionan.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Paquetes OCDS anuales de SEACE: 120-155 MB cada uno. GitHub rechaza
+# cualquier archivo de más de 100 MB, así que estos no pueden subir nunca.
+data/*.jsonl.gz
+
+# Listados y exportes que generan buscar_actas.py y el dashboard.
+data/*.csv
+data/*.xlsx
+
+# Volcados crudos de los modos --debug de los scrapers.
+data/*_raw_*.html
+data/*_raw_*.txt
+
+# Expedientes descargados de SEACE: documentos de terceros, pesados y
+# siempre recuperables por su fileCode.
+data/*.rar
+data/*.zip
+data/*.7z
+data/*.pdf
+
+# Se versionan a propósito, aunque estén en data/:
+#   licitaciones.db          base ya filtrada (~2 MB) que usa el dashboard en
+#                            Streamlit Cloud para mostrar datos sin correr
+#                            ningún extractor en la nube
+#   muestra.jsonl            fixture mínima para probar extract.py sin red
+#   resultado_extractor.json salida del extractor, la usa evaluar_licitacion.py
+# Base de analisis: tablas derivadas (documentos, postores). Se reconstruye
+# con src/indexar_documentos.py y src/postores.py, y contiene el cruce de
+# competencia, que no tiene por que publicarse.
+data/analisis.db
+data/analisis.db-*
+
+!data/.gitkeep
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Expedientes abiertos y cachés de trabajo
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Acá caen los .rar y PDF que baja descargar_documento.py y lo que extrae
+# contenedores.py. Son documentos públicos de SEACE, pero son de terceros,
+# ocupan megas y se vuelven a bajar en segundos.
+tmp/
+
+# Caché de OCR (ocr.py). Se regenera, y una página rasterizada pesa más que
+# todo el código del proyecto junto.
+.cache_ocr/
+**/.cache_ocr/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Credenciales. Esto no es por prolijidad: una clave subida a un repo público
+# queda en la historia de git aunque después se borre el archivo.
+# ─────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+.streamlit/secrets.toml
+*.pem
+*.key
+credenciales*.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SQLite: archivos temporales que acompañan a la base mientras está abierta
+# ─────────────────────────────────────────────────────────────────────────────
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editores y sistema operativo
+# ─────────────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Copias de respaldo
+*.bak
+*.orig
+
+# IA local: modelos y caches
+*.gguf
+.ollama/
+modelos/
+
+# Salidas del prototipo (privadas)
+data/alertas/
+data/cache_ia_*.json
+data/consultas_aprendidas.jsonl
+data/*.joblib
+.venv
+__pycache__
+data/ajustes_ia.json
+data/cache_ia_clasificacion.json
+data/graficos/
+_venv_viejo_borrar
+*.zip
